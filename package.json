@@ -1,7 +1,7 @@
 {
   "name": "lunoite",
   "private": true,
-  "version": "1.2.3",
+  "version": "1.2.4",
   "author": "Moondust Labs",
   "type": "module",
   "scripts": {

@@ -1,6 +1,6 @@
 [package]
 name = "lunoite"
-version = "1.2.3"
+version = "1.2.4"
 description = "Distraction-free WYSIWYG Markdown workspace and IDE"
 authors = ["Moondust Labs"]
 license = ""
@@ -24,3 +24,6 @@ log = "0.4"
 tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 rfd = "0.15"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"

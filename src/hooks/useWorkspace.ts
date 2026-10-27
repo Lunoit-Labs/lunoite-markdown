@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { FileTreeNode, WorkspaceState, RecentWorkspace } from '../types/workspace';
 import {
   saveDirectoryHandle,
@@ -26,6 +26,13 @@ import {
 const WORKSPACE_STORAGE_KEY = 'lunoite_active_workspace';
 const NATIVE_WORKSPACE_STORAGE_KEY = 'lunoite_active_native_workspace';
 
+export interface RenameEntryResult {
+  success: boolean;
+  newNativePath?: string;
+  newHandle?: FileSystemFileHandle | null;
+  error?: string;
+}
+
 export function useWorkspace() {
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     rootHandle: null,
@@ -35,6 +42,9 @@ export function useWorkspace() {
     isLoading: false,
     error: null,
   });
+
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
 
   const [recentWorkspaces, setRecentWorkspaces] = useState<RecentWorkspace[]>(() =>
     getRecentWorkspaces()
@@ -111,25 +121,31 @@ export function useWorkspace() {
   );
 
   // Refresh tree using nativePath (Tauri) or rootHandle (browser)
-  const refreshTree = useCallback(async () => {
-    if (isTauri() && workspace.nativePath) {
+  const refreshTree = useCallback(async (): Promise<FileTreeNode[]> => {
+    const currentNativePath = workspaceRef.current.nativePath;
+    const currentRootHandle = workspaceRef.current.rootHandle;
+
+    if (isTauri() && currentNativePath) {
       try {
-        const tree = await scanNativeDirectory(workspace.nativePath);
+        const tree = await scanNativeDirectory(currentNativePath);
         setWorkspace(prev => ({ ...prev, tree }));
+        return tree;
       } catch (err) {
         console.error('Failed to refresh native file tree:', err);
       }
-      return;
+      return [];
     }
 
-    if (!workspace.rootHandle) return;
+    if (!currentRootHandle) return [];
     try {
-      const tree = await scanDirectory(workspace.rootHandle);
+      const tree = await scanDirectory(currentRootHandle);
       setWorkspace(prev => ({ ...prev, tree }));
+      return tree;
     } catch (err) {
       console.error('Failed to refresh file tree:', err);
     }
-  }, [workspace.nativePath, workspace.rootHandle, scanDirectory]);
+    return [];
+  }, [scanDirectory]);
 
   // Open a new workspace via native dialog (Tauri) or showDirectoryPicker (browser)
   const openWorkspace = useCallback(async (): Promise<boolean> => {
@@ -676,51 +692,79 @@ export function useWorkspace() {
       newName = '',
       kind: 'file' | 'directory' = 'file',
       node?: FileTreeNode
-    ): Promise<boolean> => {
+    ): Promise<RenameEntryResult> => {
       try {
-        if (oldName === newName) return true;
+        if (!oldName || !newName) return { success: false, error: 'Empty name' };
+        if (oldName === newName) return { success: true };
 
-        if (node?.nativePath) {
-          const lastSlash = Math.max(node.nativePath.lastIndexOf('/'), node.nativePath.lastIndexOf('\\'));
-          const parentDir = node.parentNativePath || (lastSlash >= 0 ? node.nativePath.substring(0, lastSlash) : '');
-          const separator = node.nativePath.includes('\\') ? '\\' : '/';
-          const newPath = parentDir ? `${parentDir}${separator}${newName}` : newName;
-          await renameNativeEntry(node.nativePath, newPath);
-          await refreshTree();
-          return true;
+        const currentWorkspaceNativePath = workspaceRef.current.nativePath;
+        const targetNativePath = node?.nativePath;
+
+        if (targetNativePath || (isTauri() && currentWorkspaceNativePath)) {
+          let oldPath = targetNativePath;
+          if (!oldPath && currentWorkspaceNativePath) {
+            const separator = currentWorkspaceNativePath.includes('\\') ? '\\' : '/';
+            oldPath = `${currentWorkspaceNativePath}${separator}${oldName}`;
+          }
+
+          if (oldPath) {
+            const lastSlash = Math.max(oldPath.lastIndexOf('/'), oldPath.lastIndexOf('\\'));
+            const parentDir = node?.parentNativePath || (lastSlash >= 0 ? oldPath.substring(0, lastSlash) : '');
+            const separator = oldPath.includes('\\') ? '\\' : '/';
+            const newPath = parentDir ? `${parentDir}${separator}${newName}` : newName;
+
+            await renameNativeEntry(oldPath, newPath);
+            await refreshTree();
+            return {
+              success: true,
+              newNativePath: newPath,
+            };
+          }
         }
 
         if (parentHandle) {
           if (kind === 'file') {
             const oldHandle = await parentHandle.getFileHandle(oldName);
+            let targetHandle: FileSystemFileHandle;
             // Check if native .move() is supported
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             if (typeof (oldHandle as any).move === 'function') {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               await (oldHandle as any).move(newName);
+              targetHandle = await parentHandle.getFileHandle(newName);
             } else {
               // Fallback: read content, create new, remove old
               const content = await readFile(oldHandle);
-              const newHandle = await parentHandle.getFileHandle(newName, {
+              targetHandle = await parentHandle.getFileHandle(newName, {
                 create: true,
               });
-              await writeFile(newHandle, content);
+              await writeFile(targetHandle, content);
               await parentHandle.removeEntry(oldName);
             }
-          } else {
-            // Directories: show alert if move is unsupported
-            alert('Folder renaming is not natively supported in this browser version.');
-            return false;
-          }
 
-          await refreshTree();
-          return true;
+            await refreshTree();
+            return {
+              success: true,
+              newHandle: targetHandle,
+            };
+          } else {
+            // Directories: check if move is supported
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if (typeof (parentHandle as any).move === 'function') {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              await (parentHandle as any).move(newName);
+              await refreshTree();
+              return { success: true };
+            }
+            alert('Folder renaming is not natively supported in this browser version.');
+            return { success: false, error: 'Folder renaming not supported in this browser' };
+          }
         }
 
-        return false;
+        return { success: false, error: 'Target file or folder not found' };
       } catch (err) {
         console.error('Failed to rename entry:', err);
-        return false;
+        return { success: false, error: (err as Error).message };
       }
     },
     [readFile, writeFile, refreshTree]

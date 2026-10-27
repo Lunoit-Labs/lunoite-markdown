@@ -18,7 +18,7 @@ import { NewWorkspaceModal } from './components/Workspace/NewWorkspaceModal';
 import { RecentWorkspacesModal } from './components/Workspace/RecentWorkspacesModal';
 import { NonMarkdownPreviewNotice } from './components/Editor/NonMarkdownPreviewNotice';
 import { scrollToActiveMatch } from './lib/searchHighlightExtension';
-import { getTauriCliFile, readNativeFile, writeNativeFile, isTauri, pickNativeFile } from './lib/tauri';
+import { getTauriCliFiles, onOpenNativeFile, readNativeFile, writeNativeFile, isTauri, pickNativeFile } from './lib/tauri';
 
 import { computeStats, downloadMarkdownFile } from './lib/markdown';
 import { INITIAL_CARDS } from './lib/defaultCards';
@@ -54,6 +54,7 @@ export const App: React.FC = () => {
   // Multi-tab document manager
   const {
     tabs,
+    setTabs,
     activeTabId,
     activeTab,
     setActiveTabId,
@@ -63,6 +64,7 @@ export const App: React.FC = () => {
     markTabClean,
     closeAllTabs,
     forceShowTab,
+    toggleTabViewMode,
   } = useTabs();
 
   // Reference shelf cards (stored in localStorage)
@@ -90,6 +92,88 @@ export const App: React.FC = () => {
   const [isSavingToDisk, setIsSavingToDisk] = useState<boolean>(false);
   const [isReadingNonMd, setIsReadingNonMd] = useState<boolean>(false);
 
+  // Global horizontal page size sync state
+  const DEFAULT_PAGE_WIDTH = 768;
+  const MIN_PAGE_WIDTH = 540;
+
+  const [isWidthSynced, setIsWidthSynced] = useState<boolean>(() => {
+    const saved = localStorage.getItem('lunoite-page-width-sync');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const [globalPageWidth, setGlobalPageWidth] = useState<number>(() => {
+    const saved =
+      localStorage.getItem('lunoite-page-width-global') ||
+      localStorage.getItem('lunoite-page-width');
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed >= MIN_PAGE_WIDTH) return parsed;
+    }
+    return DEFAULT_PAGE_WIDTH;
+  });
+
+  const [perPageWidths, setPerPageWidths] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem('lunoite-page-widths-by-tab');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const handleUpdatePageWidth = useCallback(
+    (tabId: string, newWidth: number) => {
+      if (isWidthSynced) {
+        setGlobalPageWidth(newWidth);
+        localStorage.setItem('lunoite-page-width-global', newWidth.toString());
+        localStorage.setItem('lunoite-page-width', newWidth.toString());
+        setPerPageWidths(prev => {
+          const next = { ...prev, [tabId]: newWidth };
+          localStorage.setItem('lunoite-page-widths-by-tab', JSON.stringify(next));
+          return next;
+        });
+      } else {
+        setPerPageWidths(prev => {
+          const next = { ...prev, [tabId]: newWidth };
+          localStorage.setItem('lunoite-page-widths-by-tab', JSON.stringify(next));
+          return next;
+        });
+      }
+    },
+    [isWidthSynced]
+  );
+
+  const handleToggleWidthSync = useCallback(
+    (currentTabId: string) => {
+      setIsWidthSynced(prev => {
+        const next = !prev;
+        localStorage.setItem('lunoite-page-width-sync', next.toString());
+        if (next) {
+          // Turning sync ON: sync page size globally based on current opened view
+          const currentWidth =
+            perPageWidths[currentTabId] ?? globalPageWidth ?? DEFAULT_PAGE_WIDTH;
+          setGlobalPageWidth(currentWidth);
+          localStorage.setItem('lunoite-page-width-global', currentWidth.toString());
+          localStorage.setItem('lunoite-page-width', currentWidth.toString());
+        } else {
+          // Turning sync OFF: ensure each open page has an initial width so it can be adjusted independently
+          setPerPageWidths(prevMap => {
+            const updated = { ...prevMap };
+            tabs.forEach(t => {
+              if (updated[t.id] === undefined) {
+                updated[t.id] = globalPageWidth;
+              }
+            });
+            localStorage.setItem('lunoite-page-widths-by-tab', JSON.stringify(updated));
+            return updated;
+          });
+        }
+        return next;
+      });
+    },
+    [tabs, perPageWidths, globalPageWidth]
+  );
+
   // Sync active editor reference when activeTabId changes
   useEffect(() => {
     if (activeTabId) {
@@ -101,27 +185,37 @@ export const App: React.FC = () => {
 
 
 
+  // Open native file by absolute path into a new tab (or switch to it if already open)
+  const handleOpenNativeFilePath = useCallback(
+    async (filePath: string) => {
+      try {
+        const content = await readNativeFile(filePath);
+        const fileName = filePath.split(/[\\/]/).pop() || 'document.md';
+        const tabId = `native:${filePath}`;
+        const node: FileTreeNode = {
+          id: tabId,
+          name: fileName,
+          path: fileName,
+          nativePath: filePath,
+          kind: 'file',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          handle: {} as any,
+          extension: fileName.split('.').pop() || 'md',
+        };
+        openTab(node, content, { nativePath: filePath, isSingleFile: true });
+      } catch (err) {
+        console.error('Failed to open native file:', err);
+      }
+    },
+    [openTab]
+  );
+
   // Open single Markdown file from disk (independent of workspace folder)
   const handleOpenSingleFile = useCallback(async () => {
     if (isTauri()) {
       const filePath = await pickNativeFile();
       if (filePath) {
-        try {
-          const content = await readNativeFile(filePath);
-          const fileName = filePath.split(/[\\/]/).pop() || 'document.md';
-          const tabId = `native:${filePath}`;
-          const node: FileTreeNode = {
-            id: tabId,
-            name: fileName,
-            path: fileName,
-            nativePath: filePath,
-            kind: 'file',
-            extension: fileName.split('.').pop() || 'md',
-          };
-          openTab(node, content, { nativePath: filePath, isSingleFile: true });
-        } catch (err) {
-          console.error('Failed to open native file:', err);
-        }
+        await handleOpenNativeFilePath(filePath);
       }
       return;
     }
@@ -518,6 +612,141 @@ export const App: React.FC = () => {
     [tabs, handleCloseTab, deleteEntry]
   );
 
+  // Update open tabs when a file or directory is renamed
+  const updateOpenTabsAfterRename = useCallback(
+    (
+      oldNode: { id?: string; name: string; path?: string; nativePath?: string; kind?: 'file' | 'directory' },
+      newName: string,
+      newNativePath?: string,
+      newHandle?: FileSystemFileHandle | null
+    ) => {
+      const isDir = oldNode.kind === 'directory';
+
+      setTabs(prevTabs => {
+        let activeChangedTo: string | null = null;
+
+        const nextTabs = prevTabs.map(tab => {
+          if (isDir) {
+            const oldDirPath = oldNode.path || oldNode.name;
+            const oldDirNative = oldNode.nativePath;
+
+            const isInsideRel = tab.path.startsWith(`${oldDirPath}/`);
+            const isInsideNative =
+              oldDirNative &&
+              tab.nativePath &&
+              (tab.nativePath.startsWith(`${oldDirNative}/`) || tab.nativePath.startsWith(`${oldDirNative}\\`));
+
+            if (isInsideRel || isInsideNative) {
+              const lastSlash = Math.max(oldDirPath.lastIndexOf('/'), oldDirPath.lastIndexOf('\\'));
+              const parentRel = lastSlash >= 0 ? oldDirPath.substring(0, lastSlash + 1) : '';
+              const newDirPath = `${parentRel}${newName}`;
+
+              const updatedRelPath = tab.path.replace(oldDirPath, newDirPath);
+              let updatedNativePath = tab.nativePath;
+              if (oldDirNative && newNativePath && tab.nativePath) {
+                updatedNativePath = tab.nativePath.replace(oldDirNative, newNativePath);
+              }
+
+              const newTabId = tab.id.startsWith('native:') && updatedNativePath
+                ? `native:${updatedNativePath}`
+                : tab.id.includes(oldDirPath)
+                  ? tab.id.replace(oldDirPath, newDirPath)
+                  : tab.id;
+
+              if (activeTabId === tab.id) {
+                activeChangedTo = newTabId;
+              }
+
+              if (newTabId !== tab.id) {
+                const ed = editorsRef.current.get(tab.id);
+                if (ed) {
+                  editorsRef.current.set(newTabId, ed);
+                  editorsRef.current.delete(tab.id);
+                }
+                setPerPageWidths(prevWidths => {
+                  if (prevWidths[tab.id] !== undefined) {
+                    const updated = { ...prevWidths, [newTabId]: prevWidths[tab.id] };
+                    delete updated[tab.id];
+                    localStorage.setItem('lunoite-page-widths-by-tab', JSON.stringify(updated));
+                    return updated;
+                  }
+                  return prevWidths;
+                });
+              }
+
+              return {
+                ...tab,
+                id: newTabId,
+                path: updatedRelPath,
+                nativePath: updatedNativePath,
+              };
+            }
+            return tab;
+          }
+
+          // Single file rename
+          const matches =
+            (oldNode.id && tab.id === oldNode.id) ||
+            (oldNode.nativePath && tab.nativePath && tab.nativePath === oldNode.nativePath) ||
+            (oldNode.nativePath && tab.id === `native:${oldNode.nativePath}`) ||
+            (tab.name === oldNode.name && tab.path === (oldNode.path || oldNode.name));
+
+          if (matches) {
+            const lastSlash = Math.max(tab.path.lastIndexOf('/'), tab.path.lastIndexOf('\\'));
+            const parentRel = lastSlash >= 0 ? tab.path.substring(0, lastSlash + 1) : '';
+            const newRelPath = `${parentRel}${newName}`;
+
+            let newTabId = newRelPath;
+            if (tab.id.startsWith('native:') && newNativePath) {
+              newTabId = `native:${newNativePath}`;
+            } else if (oldNode.id && tab.id === oldNode.id) {
+              newTabId = newRelPath;
+            }
+
+            if (activeTabId === tab.id) {
+              activeChangedTo = newTabId;
+            }
+
+            if (newTabId !== tab.id) {
+              const ed = editorsRef.current.get(tab.id);
+              if (ed) {
+                editorsRef.current.set(newTabId, ed);
+                editorsRef.current.delete(tab.id);
+              }
+              setPerPageWidths(prevWidths => {
+                if (prevWidths[tab.id] !== undefined) {
+                  const updated = { ...prevWidths, [newTabId]: prevWidths[tab.id] };
+                  delete updated[tab.id];
+                  localStorage.setItem('lunoite-page-widths-by-tab', JSON.stringify(updated));
+                  return updated;
+                }
+                return prevWidths;
+              });
+            }
+
+            return {
+              ...tab,
+              id: newTabId,
+              name: newName,
+              path: newRelPath,
+              nativePath: newNativePath !== undefined ? newNativePath : tab.nativePath,
+              handle: newHandle !== undefined ? newHandle : tab.handle,
+            };
+          }
+
+          return tab;
+        });
+
+        if (activeChangedTo) {
+          setActiveTabId(activeChangedTo);
+        }
+
+        return nextTabs;
+      });
+    },
+    [activeTabId, setActiveTabId, setTabs]
+  );
+
   // Rename node
   const handleRenameNode = useCallback(
     async (
@@ -527,10 +756,103 @@ export const App: React.FC = () => {
       kind: 'file' | 'directory' = 'file',
       node?: FileTreeNode
     ) => {
-      if (!oldName || !newName) return;
-      await renameEntry(parentHandle, oldName, newName, kind, node);
+      if (!oldName || !newName || oldName === newName) return;
+      const res = await renameEntry(parentHandle, oldName, newName, kind, node);
+      if (res.success) {
+        updateOpenTabsAfterRename(
+          {
+            id: node?.id,
+            name: oldName,
+            path: node?.path,
+            nativePath: node?.nativePath,
+            kind,
+          },
+          newName,
+          res.newNativePath,
+          res.newHandle
+        );
+      }
     },
-    [renameEntry]
+    [renameEntry, updateOpenTabsAfterRename]
+  );
+
+  // Rename active tab from top Header
+  const handleRenameActiveTab = useCallback(
+    async (newName: string) => {
+      if (!activeTab) return;
+      const cleanNewName = newName.trim().endsWith('.md')
+        ? newName.trim()
+        : `${newName.trim()}.md`;
+
+      if (cleanNewName === activeTab.name) return;
+
+      if (activeTab.nativePath) {
+        const lastSlash = Math.max(
+          activeTab.nativePath.lastIndexOf('/'),
+          activeTab.nativePath.lastIndexOf('\\')
+        );
+        const parentDir = lastSlash >= 0 ? activeTab.nativePath.substring(0, lastSlash) : '';
+        const virtualNode: FileTreeNode = {
+          id: activeTab.id,
+          name: activeTab.name,
+          path: activeTab.path,
+          nativePath: activeTab.nativePath,
+          parentNativePath: parentDir,
+          kind: 'file',
+          extension: 'md',
+        };
+
+        await handleRenameNode(
+          activeTab.parentDirHandle,
+          activeTab.name,
+          cleanNewName,
+          'file',
+          virtualNode
+        );
+        return;
+      }
+
+      if (activeTab.parentDirHandle) {
+        const virtualNode: FileTreeNode = {
+          id: activeTab.id,
+          name: activeTab.name,
+          path: activeTab.path,
+          kind: 'file',
+          handle: activeTab.handle || undefined,
+          parentHandle: activeTab.parentDirHandle,
+          extension: 'md',
+        };
+
+        await handleRenameNode(
+          activeTab.parentDirHandle,
+          activeTab.name,
+          cleanNewName,
+          'file',
+          virtualNode
+        );
+        return;
+      }
+
+      // Single file move or local scratchpad note
+      if (activeTab.handle && typeof (activeTab.handle as any).move === 'function') {
+        try {
+          await (activeTab.handle as any).move(cleanNewName);
+        } catch (err) {
+          console.warn('Failed to move single file handle:', err);
+        }
+      }
+
+      updateOpenTabsAfterRename(
+        {
+          id: activeTab.id,
+          name: activeTab.name,
+          path: activeTab.path,
+          kind: 'file',
+        },
+        cleanNewName
+      );
+    },
+    [activeTab, handleRenameNode, updateOpenTabsAfterRename]
   );
 
   // Export current file
@@ -659,30 +981,27 @@ export const App: React.FC = () => {
 
   // Startup: Check if opened via CLI in Tauri desktop mode
   useEffect(() => {
-    async function checkCliFile() {
-      const cliPath = await getTauriCliFile();
-      if (cliPath) {
-        try {
-          const content = await readNativeFile(cliPath);
-          const fileName = cliPath.split(/[\\/]/).pop() || 'document.md';
-          const tabId = `native:${cliPath}`;
-          const node: FileTreeNode = {
-            id: tabId,
-            name: fileName,
-            path: fileName,
-            kind: 'file',
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            handle: {} as any,
-            extension: fileName.split('.').pop() || 'md',
-          };
-          openTab(node, content, { nativePath: cliPath, isSingleFile: true });
-        } catch (err) {
-          console.error('Failed to open CLI file:', err);
-        }
+    async function checkCliFiles() {
+      const cliFiles = await getTauriCliFiles();
+      for (const filePath of cliFiles) {
+        await handleOpenNativeFilePath(filePath);
       }
     }
-    checkCliFile();
-  }, [openTab]);
+    checkCliFiles();
+  }, [handleOpenNativeFilePath]);
+
+  // Single-instance: Listen for files opened while the app is already running
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    onOpenNativeFile(filePath => {
+      handleOpenNativeFilePath(filePath);
+    }).then(unlisten => {
+      cleanup = unlisten;
+    });
+    return () => {
+      cleanup?.();
+    };
+  }, [handleOpenNativeFilePath]);
 
   // Startup: Chromium PWA File Handling API (launchQueue)
   useEffect(() => {
@@ -830,11 +1149,24 @@ export const App: React.FC = () => {
         e.preventDefault();
         setIsShelfOpen(prev => !prev);
       }
+      // Alt+M: Toggle Rendered / Raw Markdown
+      if (e.altKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        if (activeTabId) {
+          toggleTabViewMode(activeTabId);
+        }
+      }
       // Alt+Z: Toggle Zen mode
       if (e.altKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         setIsZenMode(prev => !prev);
       }
+      // Ctrl+Shift+R or F5: Refresh workspace file tree
+      if (((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'r') || e.key === 'F5') {
+        e.preventDefault();
+        refreshTree();
+      }
+
       // Esc: Exit Zen mode
       if (e.key === 'Escape' && isZenMode) {
         setIsZenMode(false);
@@ -843,7 +1175,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleGlobalShortcuts);
     return () => window.removeEventListener('keydown', handleGlobalShortcuts);
-  }, [handleOpenSingleFile, handleOpenWorkspace, isZenMode, sidebarTab]);
+  }, [handleOpenSingleFile, handleOpenWorkspace, isZenMode, sidebarTab, activeTabId, toggleTabViewMode, refreshTree]);
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#f8f7f4] dark:bg-[#111215] text-[#191b1f] dark:text-[#eceef2] font-sans antialiased transition-colors duration-200">
@@ -851,16 +1183,7 @@ export const App: React.FC = () => {
       <Header
         workspaceName={workspace.name || undefined}
         fileName={activeTab ? activeTab.name : 'No file open'}
-        onRename={newName => {
-          if (activeTab && activeTab.parentDirHandle) {
-            handleRenameNode(
-              activeTab.parentDirHandle,
-              activeTab.name,
-              newName,
-              'file'
-            );
-          }
-        }}
+        onRename={handleRenameActiveTab}
         saveStatus={saveStatus}
         onOpenFile={handleOpenSingleFile}
         onOpenWorkspace={handleOpenWorkspace}
@@ -986,6 +1309,16 @@ export const App: React.FC = () => {
                             setSidebarTab('files');
                           }
                         }}
+                        viewMode={tab.viewMode || 'rendered'}
+                        onToggleViewMode={() => toggleTabViewMode(tab.id)}
+                        pageWidth={
+                          isWidthSynced
+                            ? globalPageWidth
+                            : (perPageWidths[tab.id] ?? globalPageWidth ?? DEFAULT_PAGE_WIDTH)
+                        }
+                        onUpdatePageWidth={width => handleUpdatePageWidth(tab.id, width)}
+                        isWidthSynced={isWidthSynced}
+                        onToggleWidthSync={() => handleToggleWidthSync(tab.id)}
                       />
                     )}
                   </div>

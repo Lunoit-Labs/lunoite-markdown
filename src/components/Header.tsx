@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   FolderOpen,
   FolderPlus,
@@ -73,16 +73,55 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(fileName);
+  const isSubmittingNameRef = useRef(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
-  const handleNameSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (tempName.trim()) {
-      const sanitized = tempName.trim().endsWith('.md')
-        ? tempName.trim()
-        : `${tempName.trim()}.md`;
-      onRename(sanitized);
+  useEffect(() => {
+    setTempName(fileName);
+  }, [fileName]);
+
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus();
+      const dotIndex = tempName.lastIndexOf('.');
+      if (dotIndex > 0) {
+        nameInputRef.current.setSelectionRange(0, dotIndex);
+      } else {
+        nameInputRef.current.select();
+      }
+    }
+  }, [isEditingName]);
+
+  const handleNameSubmit = (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (isSubmittingNameRef.current) return;
+    isSubmittingNameRef.current = true;
+
+    const trimmed = tempName.trim();
+    if (trimmed) {
+      const sanitized = trimmed.endsWith('.md')
+        ? trimmed
+        : `${trimmed}.md`;
+      if (sanitized !== fileName) {
+        onRename(sanitized);
+      }
     }
     setIsEditingName(false);
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      isSubmittingNameRef.current = true;
+      setTempName(fileName);
+      setIsEditingName(false);
+    } else if (e.key === 'Enter') {
+      e.stopPropagation();
+      handleNameSubmit(e);
+    }
   };
 
   const renderStatusBadge = () => {
@@ -202,11 +241,12 @@ export const Header: React.FC<HeaderProps> = ({
             {isEditingName ? (
               <form onSubmit={handleNameSubmit} className="flex items-center">
                 <input
+                  ref={nameInputRef}
                   type="text"
-                  autoFocus
                   value={tempName}
                   onChange={e => setTempName(e.target.value)}
-                  onBlur={handleNameSubmit}
+                  onBlur={() => handleNameSubmit()}
+                  onKeyDown={handleNameKeyDown}
                   className="px-2 py-0.5 text-xs font-mono rounded border border-[#2d6a4f] dark:border-[#52b788] bg-transparent text-[#191b1f] dark:text-[#eceef2] focus:outline-none"
                 />
               </form>
@@ -214,6 +254,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  isSubmittingNameRef.current = false;
                   setTempName(fileName);
                   setIsEditingName(true);
                 }}
@@ -314,7 +355,6 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="w-[1px] h-4 bg-[#e5e3dc] dark:bg-[#282b33] mx-1 hidden sm:block" aria-hidden="true" />
 
-        {/* View Mode Controls */}
         <button
           type="button"
           onClick={onToggleZenMode}

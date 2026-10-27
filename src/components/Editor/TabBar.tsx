@@ -19,10 +19,11 @@ export const TabBar: React.FC<TabBarProps> = ({
 
   return (
     <div
-      className="flex items-center overflow-x-auto border-b border-[#e5e3dc] dark:border-[#282b33] bg-[#f8f7f4] dark:bg-[#111215] select-none text-xs"
+      className="flex items-center justify-between border-b border-[#e5e3dc] dark:border-[#282b33] bg-[#f8f7f4] dark:bg-[#111215] select-none text-xs"
       role="tablist"
       aria-label="Open documents"
     >
+      <div className="flex items-center overflow-x-auto min-w-0">
       {tabs.map(tab => {
         const isActive = tab.id === activeTabId;
 
@@ -68,6 +69,7 @@ export const TabBar: React.FC<TabBarProps> = ({
           </div>
         );
       })}
+      </div>
     </div>
   );
 };

@@ -34,7 +34,7 @@ interface WorkspaceExplorerProps {
     kind?: 'file' | 'directory',
     node?: TreeNodeType
   ) => void;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<unknown>;
   onCloseWorkspace: () => void;
   readFile?: (fileHandle?: FileSystemFileHandle, nativePath?: string) => Promise<string>;
   openTabs?: OpenTab[];
@@ -61,6 +61,28 @@ export const WorkspaceExplorer: React.FC<WorkspaceExplorerProps> = ({
 }) => {
   const [internalTab, setInternalTab] = useState<'files' | 'search'>('files');
   const activeTab = activeSidebarTab !== undefined ? activeSidebarTab : internalTab;
+
+  const [isRefreshingWorkspace, setIsRefreshingWorkspace] = useState(false);
+  const [refreshingFolderId, setRefreshingFolderId] = useState<string | null>(null);
+
+  const handleRefresh = async () => {
+    setIsRefreshingWorkspace(true);
+    try {
+      await onRefresh();
+    } finally {
+      setTimeout(() => setIsRefreshingWorkspace(false), 450);
+    }
+  };
+
+  const handleRefreshFolder = async (node: TreeNodeType) => {
+    setRefreshingFolderId(node.id);
+    handleExpandFolder(node.id);
+    try {
+      await onRefresh();
+    } finally {
+      setTimeout(() => setRefreshingFolderId(null), 450);
+    }
+  };
 
   const handleTabSwitch = (tab: 'files' | 'search') => {
     if (onTabChange) {
@@ -342,12 +364,12 @@ export const WorkspaceExplorer: React.FC<WorkspaceExplorerProps> = ({
           </button>
           <button
             type="button"
-            onClick={onRefresh}
+            onClick={handleRefresh}
             className="p-1 rounded text-[#59606d] dark:text-[#9ba2b0] hover:text-[#191b1f] dark:hover:text-[#eceef2] hover:bg-black/5 dark:hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
-            title="Refresh file tree"
-            aria-label="Refresh file tree"
+            title="Refresh workspace folder (Ctrl+Shift+R)"
+            aria-label="Refresh workspace folder"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingWorkspace ? 'animate-spin' : ''}`} />
           </button>
           <button
             type="button"
@@ -542,6 +564,8 @@ export const WorkspaceExplorer: React.FC<WorkspaceExplorerProps> = ({
                   onCreateFolderInDir={(dirHandle, dirNativePath) => handleOpenNewFolderPrompt(dirHandle, dirNativePath)}
                   onDeleteNode={onDeleteNode}
                   onRenameNode={onRenameNode}
+                  onRefreshFolder={handleRefreshFolder}
+                  refreshingFolderId={refreshingFolderId}
                 />
               ))
             ) : (

@@ -33,6 +33,34 @@ export async function getTauriCliFile(): Promise<string | null> {
   }
 }
 
+export async function getTauriCliFiles(): Promise<string[]> {
+  if (!isTauri()) return [];
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const files = await invoke<string[]>('get_cli_files');
+    return files || [];
+  } catch (err) {
+    console.warn('Failed to get CLI files from Tauri:', err);
+    return [];
+  }
+}
+
+export async function onOpenNativeFile(callback: (filePath: string) => void): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  try {
+    const { listen } = await import('@tauri-apps/api/event');
+    const unlisten = await listen<string>('open-native-file', (event) => {
+      if (event.payload) {
+        callback(event.payload);
+      }
+    });
+    return unlisten;
+  } catch (err) {
+    console.warn('Failed to listen for open-native-file event:', err);
+    return () => {};
+  }
+}
+
 export async function pickNativeDirectory(): Promise<string | null> {
   if (!isTauri()) return null;
   try {

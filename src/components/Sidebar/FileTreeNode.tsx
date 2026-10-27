@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FileTreeNode as TreeNodeType, isMarkdownFile } from '../../types/workspace';
 import { ConfirmModal } from '../ConfirmModal';
 import {
@@ -11,6 +11,7 @@ import {
   Edit2,
   FilePlus,
   FolderPlus,
+  RefreshCw,
 } from 'lucide-react';
 
 interface FileTreeNodeProps {
@@ -32,6 +33,8 @@ interface FileTreeNodeProps {
     kind?: 'file' | 'directory',
     node?: TreeNodeType
   ) => void;
+  onRefreshFolder?: (node: TreeNodeType) => void;
+  refreshingFolderId?: string | null;
 }
 
 export const FileTreeNode: React.FC<FileTreeNodeProps> = ({
@@ -47,14 +50,19 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = ({
   onCreateFolderInDir,
   onDeleteNode,
   onRenameNode,
+  onRefreshFolder,
+  refreshingFolderId,
 }) => {
   const [localExpanded, setLocalExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [editName, setEditName] = useState(node.name);
+  const isSubmittingRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const isDirectory = node.kind === 'directory';
   const isActive = activeFileId === node.id;
+  const isRefreshing = refreshingFolderId === node.id;
   const isExpanded = isDirectory
     ? isSearching
       ? true
@@ -62,6 +70,22 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = ({
         ? expandedFolderIds.has(node.id)
         : localExpanded
     : false;
+
+  useEffect(() => {
+    setEditName(node.name);
+  }, [node.name]);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      const dotIndex = editName.lastIndexOf('.');
+      if (dotIndex > 0 && node.kind === 'file') {
+        inputRef.current.setSelectionRange(0, dotIndex);
+      } else {
+        inputRef.current.select();
+      }
+    }
+  }, [isEditing]);
 
   const handleRowClick = () => {
     if (isDirectory) {
@@ -75,18 +99,43 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = ({
     }
   };
 
-  const handleRenameSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (editName.trim() && editName !== node.name) {
+  const handleRenameSubmit = (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+
+    const trimmed = editName.trim();
+    // Auto-append .md if it was a markdown file and user didn't specify an extension
+    let finalName = trimmed;
+    if (node.kind === 'file' && isMarkdown && !trimmed.includes('.')) {
+      finalName = `${trimmed}.md`;
+    }
+
+    if (finalName && finalName !== node.name) {
       onRenameNode(
         node.parentHandle as FileSystemDirectoryHandle,
         node.name,
-        editName.trim(),
+        finalName,
         node.kind,
         node
       );
     }
     setIsEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      isSubmittingRef.current = true;
+      setEditName(node.name);
+      setIsEditing(false);
+    } else if (e.key === 'Enter') {
+      e.stopPropagation();
+      handleRenameSubmit(e);
+    }
   };
 
   const handleDeleteClick = (e: React.MouseEvent) => {
@@ -125,6 +174,7 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = ({
 
   const handleStartRename = (e: React.MouseEvent) => {
     e.stopPropagation();
+    isSubmittingRef.current = false;
     setEditName(node.name);
     setIsEditing(true);
   };
@@ -175,11 +225,12 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = ({
           {isEditing ? (
             <form onSubmit={handleRenameSubmit} onClick={e => e.stopPropagation()} className="flex-1 mr-1">
               <input
+                ref={inputRef}
                 type="text"
-                autoFocus
                 value={editName}
                 onChange={e => setEditName(e.target.value)}
-                onBlur={handleRenameSubmit}
+                onBlur={() => handleRenameSubmit()}
+                onKeyDown={handleKeyDown}
                 className="w-full px-1.5 py-0.5 text-xs rounded border border-[#2d6a4f] dark:border-[#52b788] bg-transparent text-[#191b1f] dark:text-[#eceef2] focus:outline-none"
               />
             </form>
@@ -213,19 +264,31 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = ({
                     <FolderPlus className="w-3 h-3" />
                   </button>
                 )}
+                {onRefreshFolder && (
+                  <button
+                    type="button"
+                    onClick={e => {
+                      e.stopPropagation();
+                      onRefreshFolder(node);
+                    }}
+                    className="p-1 rounded text-[#59606d] dark:text-[#9ba2b0] hover:text-[#191b1f] dark:hover:text-[#eceef2] hover:bg-black/5 dark:hover:bg-white/5"
+                    title="Refresh folder"
+                    aria-label="Refresh folder"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  </button>
+                )}
               </>
             )}
-            {!isDirectory && (
-              <button
-                type="button"
-                onClick={handleStartRename}
-                className="p-1 rounded text-[#59606d] dark:text-[#9ba2b0] hover:text-[#191b1f] dark:hover:text-[#eceef2] hover:bg-black/5 dark:hover:bg-white/5"
-                title="Rename file"
-                aria-label="Rename file"
-              >
-                <Edit2 className="w-3 h-3" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleStartRename}
+              className="p-1 rounded text-[#59606d] dark:text-[#9ba2b0] hover:text-[#191b1f] dark:hover:text-[#eceef2] hover:bg-black/5 dark:hover:bg-white/5"
+              title={isDirectory ? 'Rename folder' : 'Rename file'}
+              aria-label={isDirectory ? 'Rename folder' : 'Rename file'}
+            >
+              <Edit2 className="w-3 h-3" />
+            </button>
             <button
               type="button"
               onClick={handleDeleteClick}
@@ -269,6 +332,8 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = ({
                 onCreateFolderInDir={onCreateFolderInDir}
                 onDeleteNode={onDeleteNode}
                 onRenameNode={onRenameNode}
+                onRefreshFolder={onRefreshFolder}
+                refreshingFolderId={refreshingFolderId}
               />
             ))
           ) : (

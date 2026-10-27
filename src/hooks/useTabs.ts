@@ -101,17 +101,74 @@ export function useTabs() {
     setActiveTabId(null);
   }, []);
 
+  const toggleTabViewMode = useCallback((tabId: string) => {
+    setTabs(prev =>
+      prev.map(t =>
+        t.id === tabId
+          ? {
+              ...t,
+              viewMode: t.viewMode === 'raw' ? 'rendered' : 'raw',
+            }
+          : t
+      )
+    );
+  }, []);
+
+  const setTabViewMode = useCallback(
+    (tabId: string, viewMode: 'rendered' | 'raw') => {
+      setTabs(prev =>
+        prev.map(t => (t.id === tabId ? { ...t, viewMode } : t))
+      );
+    },
+    []
+  );
+
+  const renameTab = useCallback(
+    (
+      oldId: string,
+      updates: {
+        newId: string;
+        newName: string;
+        newPath: string;
+        newNativePath?: string;
+        newHandle?: FileSystemFileHandle | null;
+      }
+    ) => {
+      setTabs(prev =>
+        prev.map(t => {
+          if (t.id === oldId) {
+            return {
+              ...t,
+              id: updates.newId,
+              name: updates.newName,
+              path: updates.newPath,
+              nativePath: updates.newNativePath !== undefined ? updates.newNativePath : t.nativePath,
+              handle: updates.newHandle !== undefined ? updates.newHandle : t.handle,
+            };
+          }
+          return t;
+        })
+      );
+      setActiveTabId(currentActive => (currentActive === oldId ? updates.newId : currentActive));
+    },
+    []
+  );
+
   return {
     tabs,
+    setTabs,
     activeTabId,
     activeTab,
     setActiveTabId,
     openTab,
     closeTab,
+    renameTab,
     updateTabContent,
     markTabClean,
     closeAllTabs,
     forceShowTab,
+    toggleTabViewMode,
+    setTabViewMode,
   };
 }
 

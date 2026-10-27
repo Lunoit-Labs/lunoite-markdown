@@ -1,4 +1,5 @@
 use std::path::Path;
+use tauri::{Emitter, Manager};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct NativeFileNode {
@@ -12,17 +13,23 @@ pub struct NativeFileNode {
 }
 
 #[tauri::command]
-fn get_cli_file() -> Option<String> {
+fn get_cli_files() -> Vec<String> {
     let args: Vec<String> = std::env::args().collect();
+    let mut files = Vec::new();
     for arg in args.into_iter().skip(1) {
         if !arg.starts_with("--") {
             let p = Path::new(&arg);
             if p.exists() && p.is_file() {
-                return Some(arg);
+                files.push(arg);
             }
         }
     }
-    None
+    files
+}
+
+#[tauri::command]
+fn get_cli_file() -> Option<String> {
+    get_cli_files().into_iter().next()
 }
 
 #[tauri::command]
@@ -63,7 +70,10 @@ fn scan_native_directory(root_path: String) -> Result<Vec<NativeFileNode>, Strin
             let name = entry.file_name().to_string_lossy().to_string();
 
             // Skip hidden or build folders
-            if (name.starts_with('.') && name != ".lunoite") || name == "node_modules" || name == "dist" {
+            if (name.starts_with('.') && name != ".lunoite")
+                || name == "node_modules"
+                || name == "dist"
+            {
                 continue;
             }
 
@@ -132,7 +142,8 @@ fn create_native_file(dir_path: String, name: String) -> Result<String, String> 
         file_path = file_path.with_extension("md");
     }
     if !file_path.exists() {
-        std::fs::write(&file_path, "# Untitled\n\nStart writing...\n").map_err(|e| e.to_string())?;
+        std::fs::write(&file_path, "# Untitled\n\nStart writing...\n")
+            .map_err(|e| e.to_string())?;
     }
     Ok(file_path.to_string_lossy().to_string())
 }
@@ -161,29 +172,61 @@ fn rename_native_entry(old_path: String, new_path: String) -> Result<(), String>
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
-    .setup(|app| {
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-      }
-      Ok(())
-    })
-    .invoke_handler(tauri::generate_handler![
-      get_cli_file,
-      pick_native_directory,
-      pick_native_file,
-      read_native_file,
-      write_native_file,
-      scan_native_directory,
-      create_native_file,
-      create_native_dir,
-      delete_native_entry,
-      rename_native_entry
-    ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let base_cwd = Path::new(&cwd);
+            let mut files_to_open: Vec<String> = Vec::new();
+
+            for arg in args.into_iter().skip(1) {
+                if !arg.starts_with("--") {
+                    let p = Path::new(&arg);
+                    let resolved = if p.is_absolute() {
+                        p.to_path_buf()
+                    } else {
+                        base_cwd.join(p)
+                    };
+                    if resolved.exists() && resolved.is_file() {
+                        files_to_open.push(resolved.to_string_lossy().to_string());
+                    }
+                }
+            }
+
+            if let Some(window) = app
+                .get_webview_window("main")
+                .or_else(|| app.webview_windows().values().next().cloned())
+            {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+
+            for file in files_to_open {
+                let _ = app.emit("open-native-file", file);
+            }
+        }))
+        .setup(|app| {
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_cli_file,
+            get_cli_files,
+            pick_native_directory,
+            pick_native_file,
+            read_native_file,
+            write_native_file,
+            scan_native_directory,
+            create_native_file,
+            create_native_dir,
+            delete_native_entry,
+            rename_native_entry
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }

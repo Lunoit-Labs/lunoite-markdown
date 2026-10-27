@@ -49,8 +49,15 @@
 }
 
 /* Prose and Tiptap styling for rendered Markdown */
-.tiptap {
-  outline: none;
+.tiptap,
+.tiptap:focus,
+.tiptap:focus-visible,
+.ProseMirror,
+.ProseMirror:focus,
+.ProseMirror:focus-visible,
+.ProseMirror-focused {
+  outline: none !important;
+  box-shadow: none !important;
   min-height: 480px;
 }
 

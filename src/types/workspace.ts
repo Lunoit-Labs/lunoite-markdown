@@ -28,6 +28,7 @@ export interface OpenTab {
   isSingleFile?: boolean;
   isNonMarkdown?: boolean;
   isForceShown?: boolean;
+  viewMode?: 'rendered' | 'raw';
 }
 
 

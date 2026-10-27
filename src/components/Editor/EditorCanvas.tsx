@@ -16,6 +16,7 @@ import { EditorToolbar } from './EditorToolbar';
 import { BubbleMenu } from './BubbleMenu';
 import { SearchHighlightExtension } from '../../lib/searchHighlightExtension';
 import { EditorFindBar } from './EditorFindBar';
+import { RawMarkdownEditor } from './RawMarkdownEditor';
 
 interface EditorCanvasProps {
   initialContent: string;
@@ -29,6 +30,12 @@ interface EditorCanvasProps {
   searchHighlightQuery?: string;
   isFindBarOpen?: boolean;
   onToggleFindBar?: (open: boolean) => void;
+  viewMode?: 'rendered' | 'raw';
+  onToggleViewMode?: () => void;
+  pageWidth?: number;
+  onUpdatePageWidth?: (width: number) => void;
+  isWidthSynced?: boolean;
+  onToggleWidthSync?: () => void;
 }
 
 // Custom input rule for typing "[] " or "[ ] " to create a task list
@@ -56,6 +63,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   searchHighlightQuery,
   isFindBarOpen,
   onToggleFindBar,
+  viewMode = 'rendered',
+  onToggleViewMode,
+  pageWidth: propPageWidth,
+  onUpdatePageWidth,
+  isWidthSynced = true,
+  onToggleWidthSync,
 }) => {
   const [internalFindBarOpen, setInternalFindBarOpen] = useState(false);
   const isFindOpen = isFindBarOpen !== undefined ? isFindBarOpen : internalFindBarOpen;
@@ -75,6 +88,100 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const lastEmittedContentRef = useRef(initialContent);
   const lastSelectionRef = useRef<{ from: number; to: number } | null>(null);
   const isFirstMountRef = useRef(true);
+
+  // Raw mode undo/redo state
+  const [rawUndoRedo, setRawUndoRedo] = useState<{
+    canUndo: boolean;
+    canRedo: boolean;
+    undo: () => void;
+    redo: () => void;
+  }>({
+    canUndo: false,
+    canRedo: false,
+    undo: () => {},
+    redo: () => {},
+  });
+
+  // Horizontally adjustable page view state and dragging logic
+  const DEFAULT_PAGE_WIDTH = 768;
+  const MIN_PAGE_WIDTH = 540;
+
+  const [localWidth, setLocalWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('lunoite-page-width');
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed >= MIN_PAGE_WIDTH) return parsed;
+    }
+    return DEFAULT_PAGE_WIDTH;
+  });
+
+  const activePageWidth = propPageWidth ?? localWidth;
+
+  const [isDraggingWidth, setIsDraggingWidth] = useState(false);
+  const dragDirectionRef = useRef<'left' | 'right' | null>(null);
+  const dragStartXRef = useRef<number>(0);
+  const dragStartWidthRef = useRef<number>(DEFAULT_PAGE_WIDTH);
+  const canvasWrapperRef = useRef<HTMLDivElement | null>(null);
+
+  const updatePageWidth = useCallback(
+    (newWidth: number) => {
+      if (onUpdatePageWidth) {
+        onUpdatePageWidth(newWidth);
+      } else {
+        setLocalWidth(newWidth);
+        localStorage.setItem('lunoite-page-width', newWidth.toString());
+      }
+    },
+    [onUpdatePageWidth]
+  );
+
+  const handleStartResize = (e: React.MouseEvent, direction: 'left' | 'right') => {
+    e.preventDefault();
+    dragDirectionRef.current = direction;
+    setIsDraggingWidth(true);
+    dragStartXRef.current = e.clientX;
+    dragStartWidthRef.current = activePageWidth;
+  };
+
+  const handleResetWidth = () => {
+    updatePageWidth(DEFAULT_PAGE_WIDTH);
+  };
+
+  const handleCycleWidth = useCallback(() => {
+    const presets = [640, 768, 1024, 1360];
+    const next = presets.find(p => p > activePageWidth) || presets[0];
+    updatePageWidth(next);
+  }, [activePageWidth, updatePageWidth]);
+
+  useEffect(() => {
+    if (!isDraggingWidth) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragDirectionRef.current) return;
+      const deltaX = e.clientX - dragStartXRef.current;
+      const direction = dragDirectionRef.current === 'right' ? 1 : -1;
+      const proposed = dragStartWidthRef.current + deltaX * direction * 2;
+
+      const maxAllowed = canvasWrapperRef.current
+        ? canvasWrapperRef.current.clientWidth - 48
+        : window.innerWidth - 64;
+
+      const clamped = Math.round(Math.min(maxAllowed, Math.max(MIN_PAGE_WIDTH, proposed)));
+      updatePageWidth(clamped);
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingWidth(false);
+      dragDirectionRef.current = null;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingWidth, updatePageWidth]);
 
   const editor = useEditor({
     extensions: [
@@ -196,6 +303,66 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     }
   }, [editor, searchHighlightQuery]);
 
+  // Track scroll position to preserve it across view mode changes and tab switches
+  const scrollPositionRef = useRef<{ scrollTop: number; ratio: number }>({ scrollTop: 0, ratio: 0 });
+  const paperSheetRef = useRef<HTMLDivElement | null>(null);
+
+  const handleContainerScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const max = el.scrollHeight - el.clientHeight;
+    scrollPositionRef.current = {
+      scrollTop: el.scrollTop,
+      ratio: max > 0 ? el.scrollTop / max : 0,
+    };
+  }, []);
+
+  // Sync content and preserve scroll position when switching between view modes
+  const prevViewModeRef = useRef(viewMode);
+  useEffect(() => {
+    if (prevViewModeRef.current !== viewMode) {
+      const scrollContainer = document.getElementById(
+        tabId ? `editor-scroll-container-${tabId}` : 'editor-scroll-container'
+      );
+
+      const { scrollTop: savedScrollTop, ratio: savedRatio } = scrollPositionRef.current;
+
+      // Lock height temporarily to prevent scrollHeight collapse and zero clamping
+      if (paperSheetRef.current) {
+        const currentHeight = paperSheetRef.current.offsetHeight;
+        if (currentHeight > 0) {
+          paperSheetRef.current.style.minHeight = `${currentHeight}px`;
+        }
+      }
+
+      if (prevViewModeRef.current === 'raw' && viewMode === 'rendered') {
+        if (editor) {
+          editor.commands.setContent(initialContent, { emitUpdate: false });
+          lastEmittedContentRef.current = initialContent;
+        }
+      }
+
+      const restoreScroll = () => {
+        if (scrollContainer) {
+          const max = scrollContainer.scrollHeight - scrollContainer.clientHeight;
+          const target = savedRatio > 0 && max > 0 ? Math.round(savedRatio * max) : savedScrollTop;
+          scrollContainer.scrollTop = target;
+        }
+      };
+
+      // Restore scroll on successive animation frames, then remove temporary minHeight lock
+      requestAnimationFrame(() => {
+        restoreScroll();
+        requestAnimationFrame(() => {
+          restoreScroll();
+          if (paperSheetRef.current) {
+            paperSheetRef.current.style.minHeight = '';
+          }
+        });
+      });
+    }
+    prevViewModeRef.current = viewMode;
+  }, [viewMode, editor, initialContent, tabId]);
+
 
   // Global Ctrl+S and Ctrl+F listeners (active tab only)
   const handleKeyDown = useCallback(
@@ -219,8 +386,13 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         }
         setFindOpen(true);
       }
+      // Alt+M: Toggle Rendered / Raw Markdown
+      if (e.altKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        onToggleViewMode?.();
+      }
     },
-    [isActive, onSave, editor, setFindOpen]
+    [isActive, onSave, editor, setFindOpen, onToggleViewMode]
   );
 
   useEffect(() => {
@@ -231,7 +403,21 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[#f8f7f4] dark:bg-[#111215] transition-colors relative overflow-hidden">
       {/* Top Toolbar is pinned at top, hidden in Zen Mode */}
-      {!isZenMode && <EditorToolbar editor={editor} />}
+      {!isZenMode && (
+        <EditorToolbar
+          editor={editor}
+          viewMode={viewMode}
+          onToggleViewMode={onToggleViewMode}
+          pageWidth={activePageWidth}
+          onCyclePageWidth={handleCycleWidth}
+          isWidthSynced={isWidthSynced}
+          onToggleWidthSync={onToggleWidthSync}
+          onRawUndo={rawUndoRedo.undo}
+          onRawRedo={rawUndoRedo.redo}
+          canRawUndo={rawUndoRedo.canUndo}
+          canRawRedo={rawUndoRedo.canRedo}
+        />
+      )}
 
       {/* Floating In-Document Find Bar - Fixed and Sticky at top right (active tab only) */}
       {isActive && (
@@ -247,21 +433,89 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       {/* Scrollable Document Container */}
       <div
         id={tabId ? `editor-scroll-container-${tabId}` : 'editor-scroll-container'}
+        onScroll={handleContainerScroll}
         className="editor-scroll-container flex-1 flex flex-col min-h-0 overflow-y-auto transition-colors relative"
       >
-        {/* Floating Bubble Menu on text selection */}
-        <BubbleMenu editor={editor} onClipSelection={onClipSelection} isActive={isActive} />
+        {/* Floating Bubble Menu on text selection (rendered mode only) */}
+        {viewMode !== 'raw' && (
+          <BubbleMenu editor={editor} onClipSelection={onClipSelection} isActive={isActive} />
+        )}
 
         {/* Centered Document Canvas (Paper Sheet) */}
-        <div className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 flex justify-center">
+        <div
+          ref={canvasWrapperRef}
+          className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 flex justify-center"
+        >
           <div
-            className={`w-full max-w-3xl rounded-lg px-6 sm:px-12 my-2 transition-[background-color,border-color,box-shadow,padding] duration-200 outline-none ${
+            ref={paperSheetRef}
+            style={{ width: `${activePageWidth}px`, maxWidth: '100%' }}
+            className={`relative group rounded-lg my-2 transition-[background-color,border-color,box-shadow,padding] duration-200 outline-none ${
               isZenMode
-                ? 'bg-transparent border border-transparent shadow-none py-6 sm:py-10'
-                : 'bg-[#ffffff] dark:bg-[#17191e] border border-[#e5e3dc] dark:border-[#282b33] shadow-xs py-8 sm:py-14'
+                ? 'bg-transparent border border-transparent shadow-none'
+                : 'bg-[#ffffff] dark:bg-[#17191e] border border-[#e5e3dc] dark:border-[#282b33] shadow-xs'
             }`}
           >
-            <EditorContent editor={editor} />
+            {/* Left Horizontal Resize Handle */}
+            <div
+              onMouseDown={e => handleStartResize(e, 'left')}
+              onDoubleClick={handleResetWidth}
+              className="absolute -left-2.5 top-0 bottom-0 w-5 cursor-ew-resize z-20 flex items-center justify-center select-none group/left-handle"
+              title="Drag horizontally to adjust page width. Double-click to reset (768px)"
+              aria-label="Adjust page width left"
+            >
+              <div
+                className={`w-1 h-12 rounded-full transition-all duration-150 ${
+                  isDraggingWidth
+                    ? 'bg-[#2d6a4f] dark:bg-[#52b788] opacity-100'
+                    : 'bg-black/10 dark:bg-white/10 opacity-0 group-hover/left-handle:opacity-100 group-hover:opacity-40 hover:bg-[#2d6a4f] dark:hover:bg-[#52b788]'
+                }`}
+              />
+            </div>
+
+            {/* Right Horizontal Resize Handle */}
+            <div
+              onMouseDown={e => handleStartResize(e, 'right')}
+              onDoubleClick={handleResetWidth}
+              className="absolute -right-2.5 top-0 bottom-0 w-5 cursor-ew-resize z-20 flex items-center justify-center select-none group/right-handle"
+              title="Drag horizontally to adjust page width. Double-click to reset (768px)"
+              aria-label="Adjust page width right"
+            >
+              <div
+                className={`w-1 h-12 rounded-full transition-all duration-150 ${
+                  isDraggingWidth
+                    ? 'bg-[#2d6a4f] dark:bg-[#52b788] opacity-100'
+                    : 'bg-black/10 dark:bg-white/10 opacity-0 group-hover/right-handle:opacity-100 group-hover:opacity-40 hover:bg-[#2d6a4f] dark:hover:bg-[#52b788]'
+                }`}
+              />
+            </div>
+
+            {/* Live Width Badge while Dragging */}
+            {isDraggingWidth && (
+              <div className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded text-[11px] font-mono bg-[#191b1f] dark:bg-[#eceef2] text-white dark:text-[#111215] shadow-md z-30 pointer-events-none select-none">
+                {activePageWidth} px
+              </div>
+            )}
+
+            {/* Rendered Mode View */}
+            <div
+              className={`${viewMode === 'rendered' ? 'block' : 'hidden'} px-6 sm:px-12 ${
+                isZenMode ? 'py-6 sm:py-10' : 'py-8 sm:py-14'
+              }`}
+            >
+              <EditorContent editor={editor} />
+            </div>
+
+            {/* Raw Markdown Source View */}
+            <div className={viewMode === 'raw' ? 'block' : 'hidden'}>
+              <RawMarkdownEditor
+                value={initialContent}
+                onChange={onChange}
+                onSave={onSave}
+                isZenMode={isZenMode}
+                isActive={isActive && viewMode === 'raw'}
+                onHistoryChange={setRawUndoRedo}
+              />
+            </div>
           </div>
         </div>
       </div>
