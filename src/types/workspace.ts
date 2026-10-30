@@ -57,3 +57,38 @@ export function isMarkdownFile(node: { name: string; extension?: string }): bool
   return ext === 'md' || ext === 'markdown';
 }
 
+/**
+ * Ensures a file name has a Markdown (.md) extension by default unless an explicit
+ * known extension is provided.
+ */
+export function ensureMarkdownExtension(fileName: string): string {
+  const trimmed = fileName.trim();
+  if (!trimmed) return 'untitled.md';
+  const lower = trimmed.toLowerCase();
+  if (lower.endsWith('.md') || lower.endsWith('.markdown')) {
+    return trimmed;
+  }
+  const lastDotIndex = trimmed.lastIndexOf('.');
+  if (lastDotIndex > 0 && lastDotIndex < trimmed.length - 1) {
+    const candidateExt = trimmed.slice(lastDotIndex + 1).toLowerCase();
+    const commonExtensions = [
+      'txt',
+      'json',
+      'csv',
+      'yaml',
+      'yml',
+      'js',
+      'ts',
+      'jsx',
+      'tsx',
+      'html',
+      'css',
+      'xml',
+    ];
+    if (commonExtensions.includes(candidateExt)) {
+      return trimmed;
+    }
+  }
+  return `${trimmed}.md`;
+}
+

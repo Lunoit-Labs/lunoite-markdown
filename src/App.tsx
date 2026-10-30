@@ -24,8 +24,20 @@ import { computeStats, downloadMarkdownFile } from './lib/markdown';
 import { INITIAL_CARDS } from './lib/defaultCards';
 import { ReferenceCard } from './types/shelf';
 import { DocumentStats, SaveStatus } from './types/editor';
-import { FileTreeNode, RecentWorkspace, isMarkdownFile } from './types/workspace';
+import { FileTreeNode, RecentWorkspace, isMarkdownFile, ensureMarkdownExtension } from './types/workspace';
 import { SearchMatch } from './types/search';
+
+function getNextUntitledFileName(tree: FileTreeNode[]): string {
+  const existingNames = new Set(tree.map(n => n.name.toLowerCase()));
+  if (!existingNames.has('untitled.md')) {
+    return 'Untitled.md';
+  }
+  let index = 1;
+  while (existingNames.has(`untitled-${index}.md`) || existingNames.has(`untitled ${index}.md`)) {
+    index++;
+  }
+  return `Untitled-${index}.md`;
+}
 
 
 export const App: React.FC = () => {
@@ -568,10 +580,12 @@ export const App: React.FC = () => {
   const handleCreateFile = useCallback(
     async (parentHandle?: FileSystemDirectoryHandle, name?: string, parentNativePath?: string) => {
       if (!name) return;
-      const res = await createFile(parentHandle, name, undefined, parentNativePath);
+      const cleanName = ensureMarkdownExtension(name);
+      const title = cleanName.replace(/\.[^/.]+$/, '');
+      const initialText = `# ${title}\n\nStart writing...\n`;
+      const res = await createFile(parentHandle, cleanName, initialText, parentNativePath);
       if (res) {
-        const cleanName = name.includes('.') ? name : `${name}.md`;
-        const initialText = '# Untitled\n\nStart writing...\n';
+        const ext = cleanName.split('.').pop() || 'md';
         const dummyNode: FileTreeNode = {
           id: res.nativePath ? `native:${res.nativePath}` : cleanName,
           name: cleanName,
@@ -579,9 +593,10 @@ export const App: React.FC = () => {
           nativePath: res.nativePath,
           parentNativePath,
           kind: 'file',
-          handle: res.handle,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          handle: res.handle || ({} as any),
           parentHandle,
-          extension: 'md',
+          extension: ext,
         };
         openTab(dummyNode, initialText, { nativePath: res.nativePath });
       }
@@ -939,37 +954,56 @@ export const App: React.FC = () => {
   const handleCreateWorkspace = useCallback(
     async (
       name: string,
+      parentPathOrHandle?: string | FileSystemDirectoryHandle | null,
       initialNoteTitle?: string,
       initialNoteContent?: string
-    ): Promise<FileSystemDirectoryHandle | null> => {
+    ): Promise<boolean> => {
       handleCloseAllTabs();
-      const handle = await createNewWorkspace(
+      const res = await createNewWorkspace(
         name,
+        parentPathOrHandle,
         initialNoteTitle,
         initialNoteContent
       );
-      if (handle && initialNoteTitle) {
-        try {
-          const cleanName = initialNoteTitle.trim().endsWith('.md')
-            ? initialNoteTitle.trim()
-            : `${initialNoteTitle.trim()}.md`;
-          const fileHandle = await handle.getFileHandle(cleanName);
-          const content = await readFile(fileHandle);
-          const node: FileTreeNode = {
-            id: cleanName,
-            name: cleanName,
-            path: cleanName,
-            kind: 'file',
-            handle: fileHandle,
-            parentHandle: handle,
-            extension: 'md',
-          };
-          openTab(node, content);
-        } catch (err) {
-          console.warn('Could not automatically open starter note:', err);
+      if (res && res.success) {
+        if (initialNoteTitle) {
+          try {
+            const cleanName = ensureMarkdownExtension(initialNoteTitle.trim());
+            if (res.nativePath) {
+              const notePath = res.starterNotePath || `${res.nativePath}\\${cleanName}`;
+              const content = await readNativeFile(notePath);
+              const node: FileTreeNode = {
+                id: `native:${notePath}`,
+                name: cleanName,
+                path: cleanName,
+                nativePath: notePath,
+                kind: 'file',
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                handle: {} as any,
+                extension: 'md',
+              };
+              openTab(node, content, { nativePath: notePath });
+            } else if (res.rootHandle) {
+              const fileHandle = await res.rootHandle.getFileHandle(cleanName);
+              const content = await readFile(fileHandle);
+              const node: FileTreeNode = {
+                id: cleanName,
+                name: cleanName,
+                path: cleanName,
+                kind: 'file',
+                handle: fileHandle,
+                parentHandle: res.rootHandle,
+                extension: 'md',
+              };
+              openTab(node, content);
+            }
+          } catch (err) {
+            console.warn('Could not automatically open starter note:', err);
+          }
         }
+        return true;
       }
-      return handle;
+      return false;
     },
     [handleCloseAllTabs, createNewWorkspace, readFile, openTab]
   );
@@ -1190,8 +1224,10 @@ export const App: React.FC = () => {
         onCreateNewWorkspace={() => setIsNewWorkspaceOpen(true)}
         onOpenRecentWorkspaces={() => setIsRecentWorkspacesOpen(true)}
         onNewFile={() => {
-          if (workspace.rootHandle) {
-            handleCreateFile(workspace.rootHandle, 'untitled.md');
+          if (workspace.nativePath) {
+            handleCreateFile(undefined, getNextUntitledFileName(workspace.tree), workspace.nativePath);
+          } else if (workspace.rootHandle) {
+            handleCreateFile(workspace.rootHandle, getNextUntitledFileName(workspace.tree));
           } else {
             handleOpenScratchpad();
           }
@@ -1396,6 +1432,7 @@ export const App: React.FC = () => {
         isOpen={isNewWorkspaceOpen}
         onClose={() => setIsNewWorkspaceOpen(false)}
         onCreateWorkspace={handleCreateWorkspace}
+        currentWorkspaceNativePath={workspace.nativePath}
       />
 
       {/* Workspace History / Recent Workspaces Modal */}

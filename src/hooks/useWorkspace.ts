@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { FileTreeNode, WorkspaceState, RecentWorkspace } from '../types/workspace';
+import { FileTreeNode, WorkspaceState, RecentWorkspace, ensureMarkdownExtension } from '../types/workspace';
 import {
   saveDirectoryHandle,
   getDirectoryHandle,
@@ -30,6 +30,14 @@ export interface RenameEntryResult {
   success: boolean;
   newNativePath?: string;
   newHandle?: FileSystemFileHandle | null;
+  error?: string;
+}
+
+export interface CreateWorkspaceResult {
+  success: boolean;
+  rootHandle?: FileSystemDirectoryHandle | null;
+  nativePath?: string;
+  starterNotePath?: string;
   error?: string;
 }
 
@@ -329,13 +337,20 @@ export function useWorkspace() {
   const createNewWorkspace = useCallback(
     async (
       name: string,
+      parentPathOrHandle?: string | FileSystemDirectoryHandle | null,
       initialNoteTitle = 'Welcome.md',
       initialNoteContent?: string
-    ): Promise<FileSystemDirectoryHandle | null> => {
+    ): Promise<CreateWorkspaceResult | null> => {
       if (isTauri()) {
         try {
           setWorkspace(prev => ({ ...prev, isLoading: true, error: null }));
-          const parentDir = await pickNativeDirectory();
+          let parentDir: string | null = null;
+          if (typeof parentPathOrHandle === 'string' && parentPathOrHandle.trim()) {
+            parentDir = parentPathOrHandle.trim();
+          } else {
+            parentDir = await pickNativeDirectory();
+          }
+
           if (!parentDir) {
             setWorkspace(prev => ({ ...prev, isLoading: false }));
             return null;
@@ -344,14 +359,14 @@ export function useWorkspace() {
           const cleanName = name.trim();
           const workspacePath = await createNativeDir(parentDir, cleanName);
 
+          let notePath: string | undefined;
+
           if (initialNoteTitle && initialNoteTitle.trim()) {
-            const noteName = initialNoteTitle.trim().endsWith('.md')
-              ? initialNoteTitle.trim()
-              : `${initialNoteTitle.trim()}.md`;
+            const noteName = ensureMarkdownExtension(initialNoteTitle);
             const starterContent =
               initialNoteContent ??
               `# ${cleanName}\n\nWelcome to your new Lunoite workspace. Start writing your notes or STAR stories here.\n`;
-            const notePath = await createNativeFile(workspacePath, noteName);
+            notePath = await createNativeFile(workspacePath, noteName);
             await writeNativeFile(notePath, starterContent);
           }
 
@@ -374,7 +389,11 @@ export function useWorkspace() {
             error: null,
           });
 
-          return null;
+          return {
+            success: true,
+            nativePath: workspacePath,
+            starterNotePath: notePath,
+          };
         } catch (err) {
           console.error('Error creating native workspace:', err);
           setWorkspace(prev => ({
@@ -382,7 +401,7 @@ export function useWorkspace() {
             isLoading: false,
             error: 'Failed to create workspace.',
           }));
-          return null;
+          return { success: false, error: (err as Error).message };
         }
       }
 
@@ -396,10 +415,24 @@ export function useWorkspace() {
       try {
         setWorkspace(prev => ({ ...prev, isLoading: true, error: null }));
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const parentHandle = await (window as any).showDirectoryPicker({
-          mode: 'readwrite',
-        });
+        let parentHandle: FileSystemDirectoryHandle | null = null;
+        if (
+          parentPathOrHandle &&
+          typeof parentPathOrHandle === 'object' &&
+          'getDirectoryHandle' in parentPathOrHandle
+        ) {
+          parentHandle = parentPathOrHandle as FileSystemDirectoryHandle;
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          parentHandle = await (window as any).showDirectoryPicker({
+            mode: 'readwrite',
+          });
+        }
+
+        if (!parentHandle) {
+          setWorkspace(prev => ({ ...prev, isLoading: false }));
+          return null;
+        }
 
         const cleanName = name.trim();
         const workspaceHandle = await parentHandle.getDirectoryHandle(cleanName, {
@@ -407,9 +440,7 @@ export function useWorkspace() {
         });
 
         if (initialNoteTitle && initialNoteTitle.trim()) {
-          const noteName = initialNoteTitle.trim().endsWith('.md')
-            ? initialNoteTitle.trim()
-            : `${initialNoteTitle.trim()}.md`;
+          const noteName = ensureMarkdownExtension(initialNoteTitle);
           const noteHandle = await workspaceHandle.getFileHandle(noteName, {
             create: true,
           });
@@ -435,7 +466,10 @@ export function useWorkspace() {
           error: null,
         });
 
-        return workspaceHandle;
+        return {
+          success: true,
+          rootHandle: workspaceHandle,
+        };
       } catch (err: unknown) {
         if ((err as Error).name === 'AbortError') {
           setWorkspace(prev => ({ ...prev, isLoading: false }));
@@ -447,7 +481,7 @@ export function useWorkspace() {
           isLoading: false,
           error: 'Failed to create workspace.',
         }));
-        return null;
+        return { success: false, error: (err as Error).message };
       }
     },
     [isNativeSupported, scanDirectory]
@@ -595,7 +629,7 @@ export function useWorkspace() {
       parentNativePath?: string
     ): Promise<{ handle?: FileSystemFileHandle; nativePath?: string } | null> => {
       try {
-        const cleanName = fileName.includes('.') ? fileName : `${fileName}.md`;
+        const cleanName = ensureMarkdownExtension(fileName);
 
         if (parentNativePath || (isTauri() && workspace.nativePath)) {
           const dir = parentNativePath || workspace.nativePath!;

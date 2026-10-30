@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FileTreeNode as TreeNodeType, WorkspaceState, OpenTab, isMarkdownFile } from '../../types/workspace';
+import { FileTreeNode as TreeNodeType, WorkspaceState, OpenTab, isMarkdownFile, ensureMarkdownExtension } from '../../types/workspace';
 import { SearchMatch } from '../../types/search';
 import { FileTreeNode } from './FileTreeNode';
 import { WorkspaceSearchResults } from '../Workspace/WorkspaceSearchResults';
@@ -275,7 +275,8 @@ export const WorkspaceExplorer: React.FC<WorkspaceExplorerProps> = ({
   const handleCreateFileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if ((targetDirHandle || targetDirNativePath) && newEntryName.trim()) {
-      onCreateFile(targetDirHandle as FileSystemDirectoryHandle, newEntryName.trim(), targetDirNativePath || undefined);
+      const cleanName = ensureMarkdownExtension(newEntryName.trim());
+      onCreateFile(targetDirHandle as FileSystemDirectoryHandle, cleanName, targetDirNativePath || undefined);
       setIsNewFilePromptOpen(false);
     }
   };
@@ -478,14 +479,19 @@ export const WorkspaceExplorer: React.FC<WorkspaceExplorerProps> = ({
           {/* New File Inline Form */}
           {isNewFilePromptOpen && (
             <form onSubmit={handleCreateFileSubmit} className="p-2 bg-[#f8f7f4] dark:bg-[#111215] border-b border-[#e5e3dc] dark:border-[#282b33]">
-              <label className="block text-[10px] font-medium text-[#59606d] dark:text-[#9ba2b0] mb-1">
-                New File in {targetDirHandle?.name || (targetDirNativePath ? targetDirNativePath.split(/[\\/]/).pop() : workspace.name) || 'workspace'}:
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[10px] font-medium text-[#59606d] dark:text-[#9ba2b0] truncate">
+                  New File in {targetDirHandle?.name || (targetDirNativePath ? targetDirNativePath.split(/[\\/]/).pop() : workspace.name) || 'workspace'}:
+                </label>
+                <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-black/5 dark:bg-white/5 text-[#59606d] dark:text-[#9ba2b0]">
+                  .md default
+                </span>
+              </div>
               <div className="flex gap-1">
                 <input
                   type="text"
                   autoFocus
-                  placeholder="notes.md"
+                  placeholder="Note title (e.g. Journal)"
                   value={newEntryName}
                   onChange={e => setNewEntryName(e.target.value)}
                   onKeyDown={e => {
