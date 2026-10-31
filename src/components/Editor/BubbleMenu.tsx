@@ -15,10 +15,15 @@ import {
 interface BubbleMenuProps {
   editor: Editor | null;
   onClipSelection: (text: string) => void;
+  isActive?: boolean;
 }
 
-export const BubbleMenu: React.FC<BubbleMenuProps> = ({ editor, onClipSelection }) => {
-  if (!editor) return null;
+export const BubbleMenu: React.FC<BubbleMenuProps> = ({
+  editor,
+  onClipSelection,
+  isActive = true,
+}) => {
+  if (!editor || !isActive) return null;
 
   const handleClip = () => {
     const { from, to } = editor.state.selection;

@@ -172,6 +172,7 @@ export const NewCardModal: React.FC<NewCardModalProps> = ({
               placeholder="Write or paste your Markdown snippet..."
               value={content}
               onChange={e => setContent(e.target.value)}
+              spellCheck={false}
               className="w-full px-3 py-2 text-xs font-mono rounded border border-[#e5e3dc] dark:border-[#282b33] bg-transparent focus:border-[#2d6a4f] dark:focus:border-[#52b788] focus:outline-none resize-y"
             />
           </div>

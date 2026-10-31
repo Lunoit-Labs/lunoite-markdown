@@ -28,3 +28,8 @@ dist-ssr
 
 # AI Agents and local skills
 .agents/
+
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/schemas/
+

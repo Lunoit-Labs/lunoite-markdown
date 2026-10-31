@@ -30,8 +30,17 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
   if (!isOpen) return null;
 
   const shortcuts = [
-    { key: 'Ctrl + S', desc: 'Save changes directly to local file' },
-    { key: 'Ctrl + O', desc: 'Open markdown file from disk' },
+    { key: 'Ctrl + S', desc: 'Save changes to local file' },
+    { key: 'Ctrl + O', desc: 'Open single Markdown file' },
+    { key: 'Ctrl + Alt + O', desc: 'Open workspace folder' },
+    { key: 'Ctrl + Shift + O', desc: 'Workspace history & switch' },
+    { key: 'Ctrl + Alt + N', desc: 'Create new workspace' },
+    { key: 'Ctrl + Shift + F', desc: 'Search text across workspace' },
+    { key: 'Ctrl + F', desc: 'Find in active document' },
+    { key: 'Ctrl + Shift + R', desc: 'Refresh workspace file tree' },
+    { key: 'Alt + E', desc: 'Toggle File Explorer sidebar' },
+    { key: 'Alt + M', desc: 'Toggle Rendered / Raw Markdown' },
+    { key: 'Drag page edge', desc: 'Adjust page width (Double-click to reset)' },
     { key: 'Alt + Z', desc: 'Toggle Zen focus mode' },
     { key: 'Alt + S', desc: 'Toggle Reference Shelf' },
     { key: 'Ctrl + B', desc: 'Bold text formatting' },
@@ -61,8 +70,8 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
       aria-modal="true"
       aria-labelledby="shortcuts-title"
     >
-      <div className="w-full max-w-lg rounded-lg border border-[#e5e3dc] dark:border-[#282b33] bg-[#ffffff] dark:bg-[#17191e] p-5 shadow-2xl text-[#191b1f] dark:text-[#eceef2] transition-all">
-        <div className="flex items-center justify-between pb-3 border-b border-[#e5e3dc] dark:border-[#282b33]">
+      <div className="w-full max-w-2xl rounded-lg border border-[#e5e3dc] dark:border-[#282b33] bg-[#ffffff] dark:bg-[#17191e] p-6 shadow-2xl text-[#191b1f] dark:text-[#eceef2] transition-all">
+        <div className="flex items-center justify-between pb-3.5 border-b border-[#e5e3dc] dark:border-[#282b33]">
           <div className="flex items-center gap-2">
             <Keyboard className="w-4 h-4 text-[#2d6a4f] dark:text-[#52b788]" aria-hidden="true" />
             <h2 id="shortcuts-title" className="font-semibold text-sm">
@@ -80,16 +89,16 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
           </button>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-5 text-xs max-h-[70vh] overflow-y-auto pr-1">
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-8 text-xs max-h-[70vh] overflow-y-auto pr-1">
           <div>
-            <h3 className="font-semibold text-xs text-[#2d6a4f] dark:text-[#52b788] mb-2 uppercase tracking-wider">
+            <h3 className="font-semibold text-xs text-[#2d6a4f] dark:text-[#52b788] mb-3 uppercase tracking-wider">
               Application Shortcuts
             </h3>
-            <ul className="space-y-2">
+            <ul className="space-y-2.5">
               {shortcuts.map(s => (
-                <li key={s.key} className="flex items-center justify-between">
-                  <span className="text-[#59606d] dark:text-[#9ba2b0]">{s.desc}</span>
-                  <kbd className="px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-[11px] border border-[#e5e3dc] dark:border-[#282b33]">
+                <li key={s.key} className="flex items-center justify-between gap-6 py-0.5">
+                  <span className="text-[#59606d] dark:text-[#9ba2b0] whitespace-nowrap">{s.desc}</span>
+                  <kbd className="whitespace-nowrap shrink-0 px-2 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-[11px] font-medium border border-[#e5e3dc] dark:border-[#282b33] text-[#191b1f] dark:text-[#eceef2]">
                     {s.key}
                   </kbd>
                 </li>
@@ -98,14 +107,14 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
           </div>
 
           <div>
-            <h3 className="font-semibold text-xs text-[#2d6a4f] dark:text-[#52b788] mb-2 uppercase tracking-wider">
+            <h3 className="font-semibold text-xs text-[#2d6a4f] dark:text-[#52b788] mb-3 uppercase tracking-wider">
               Inline Markdown Triggers
             </h3>
-            <ul className="space-y-2">
+            <ul className="space-y-2.5">
               {markdownTriggers.map(t => (
-                <li key={t.trigger} className="flex items-center justify-between">
-                  <span className="text-[#59606d] dark:text-[#9ba2b0]">{t.desc}</span>
-                  <kbd className="px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-[11px] border border-[#e5e3dc] dark:border-[#282b33]">
+                <li key={t.trigger} className="flex items-center justify-between gap-6 py-0.5">
+                  <span className="text-[#59606d] dark:text-[#9ba2b0] whitespace-nowrap">{t.desc}</span>
+                  <kbd className="whitespace-nowrap shrink-0 px-2 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-[11px] font-medium border border-[#e5e3dc] dark:border-[#282b33] text-[#191b1f] dark:text-[#eceef2]">
                     {t.trigger}
                   </kbd>
                 </li>

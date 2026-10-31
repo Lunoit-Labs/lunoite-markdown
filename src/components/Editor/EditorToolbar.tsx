@@ -18,15 +18,161 @@ import {
   Redo2,
   FileCode,
   Trash2,
+  Eye,
+  MoveHorizontal,
+  Link2,
+  Link2Off,
 } from 'lucide-react';
 import { TableDialog } from './TableDialog';
 
 interface EditorToolbarProps {
   editor: Editor | null;
+  viewMode?: 'rendered' | 'raw';
+  onToggleViewMode?: () => void;
+  pageWidth?: number;
+  onCyclePageWidth?: () => void;
+  isWidthSynced?: boolean;
+  onToggleWidthSync?: () => void;
+  onRawUndo?: () => void;
+  onRawRedo?: () => void;
+  canRawUndo?: boolean;
+  canRawRedo?: boolean;
 }
 
-export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor }) => {
+export const EditorToolbar: React.FC<EditorToolbarProps> = ({
+  editor,
+  viewMode = 'rendered',
+  onToggleViewMode,
+  pageWidth,
+  onCyclePageWidth,
+  isWidthSynced = true,
+  onToggleWidthSync,
+  onRawUndo,
+  onRawRedo,
+  canRawUndo = false,
+  canRawRedo = false,
+}) => {
   const [isTableDialogOpen, setIsTableDialogOpen] = useState(false);
+
+  if (viewMode === 'raw') {
+    return (
+      <div
+        className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 border-b border-[#e5e3dc] dark:border-[#282b33] bg-[#ffffff] dark:bg-[#17191e] text-[#191b1f] dark:text-[#eceef2] text-xs transition-colors select-none"
+        role="toolbar"
+        aria-label="Editor formatting toolbar"
+      >
+        <div className="flex items-center gap-2 text-xs text-[#59606d] dark:text-[#9ba2b0] py-0.5">
+          <span className="font-mono text-[11px] font-medium px-2 py-0.5 rounded bg-black/5 dark:bg-white/5 border border-[#e5e3dc] dark:border-[#282b33] text-[#2d6a4f] dark:text-[#52b788]">
+            Raw Source
+          </span>
+          <span className="text-[11px] hidden sm:inline text-[#59606d] dark:text-[#9ba2b0]">
+            Direct Markdown editing. Press <kbd className="px-1 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-[10px] text-[#191b1f] dark:text-[#eceef2]">Alt+M</kbd> to return to rendered view.
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 ml-auto">
+          {onCyclePageWidth && (
+            <div className="flex items-stretch rounded border border-[#e5e3dc] dark:border-[#282b33] bg-[#f8f7f4] dark:bg-[#111215] overflow-hidden">
+              <button
+                type="button"
+                onClick={onCyclePageWidth}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-[#59606d] dark:text-[#9ba2b0] hover:text-[#191b1f] dark:hover:text-[#eceef2] hover:bg-black/5 dark:hover:bg-white/5 transition-colors focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
+                title={`Page width: ${pageWidth || 768}px. Click to cycle width presets (Standard, Wide, Full, Narrow)`}
+                aria-label="Cycle page width preset"
+              >
+                <MoveHorizontal className="w-3 h-3 text-[#2d6a4f] dark:text-[#52b788]" />
+                <span className="font-mono text-[10px]">{pageWidth || 768}px</span>
+              </button>
+              {onToggleWidthSync && (
+                <button
+                  type="button"
+                  onClick={onToggleWidthSync}
+                  className={`flex items-center px-1.5 py-1 border-l border-[#e5e3dc] dark:border-[#282b33] transition-colors focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788] ${
+                    isWidthSynced
+                      ? 'text-[#2d6a4f] dark:text-[#52b788] hover:bg-black/5 dark:hover:bg-white/5'
+                      : 'text-[#59606d]/60 dark:text-[#9ba2b0]/60 hover:text-[#191b1f] dark:hover:text-[#eceef2] hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                  title={
+                    isWidthSynced
+                      ? `Global page size sync is ON (${pageWidth || 768}px). Click to adjust pages independently.`
+                      : `Global page size sync is OFF. Click to sync all pages globally to this view (${pageWidth || 768}px).`
+                  }
+                  aria-label={
+                    isWidthSynced
+                      ? 'Disable global page size sync'
+                      : 'Sync page size globally based on current view'
+                  }
+                >
+                  {isWidthSynced ? (
+                    <Link2 className="w-3 h-3" />
+                  ) : (
+                    <Link2Off className="w-3 h-3" />
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+
+          {onToggleViewMode && (
+            <div
+              className="flex items-center p-0.5 rounded-md border border-[#e5e3dc] dark:border-[#282b33] bg-[#f8f7f4] dark:bg-[#111215]"
+              role="radiogroup"
+              aria-label="Document view mode"
+            >
+              <button
+                type="button"
+                onClick={() => onToggleViewMode()}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors text-[#59606d] dark:text-[#9ba2b0] hover:text-[#191b1f] dark:hover:text-[#eceef2] focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
+                role="radio"
+                aria-checked={false}
+                title="Switch to Rendered Markdown (Alt+M)"
+              >
+                <Eye className="w-3 h-3" />
+                <span>Rendered</span>
+              </button>
+              <button
+                type="button"
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors bg-[#ffffff] dark:bg-[#17191e] text-[#2d6a4f] dark:text-[#52b788] shadow-xs focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
+                role="radio"
+                aria-checked={true}
+                title="Raw Markdown Active (Alt+M)"
+              >
+                <Code className="w-3 h-3" />
+                <span>Raw</span>
+              </button>
+            </div>
+          )}
+
+          <div className="w-[1px] h-4 bg-[#e5e3dc] dark:bg-[#282b33] mx-1" aria-hidden="true" />
+
+          {/* Undo / Redo */}
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={onRawUndo}
+              disabled={!canRawUndo}
+              className="p-1.5 rounded text-[#59606d] dark:text-[#9ba2b0] hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
+              title="Undo (Ctrl+Z)"
+              aria-label="Undo"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={onRawRedo}
+              disabled={!canRawRedo}
+              className="p-1.5 rounded text-[#59606d] dark:text-[#9ba2b0] hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
+              title="Redo (Ctrl+Shift+Z)"
+              aria-label="Redo"
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!editor) return null;
 
@@ -354,29 +500,106 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor }) => {
 
         <div className="w-[1px] h-4 bg-[#e5e3dc] dark:bg-[#282b33] mx-1" aria-hidden="true" />
 
-        {/* Undo / Redo */}
-        <div className="flex items-center ml-auto gap-0.5">
-          <button
-            type="button"
-            onClick={() => editor.chain().focus().undo().run()}
-            disabled={!editor.can().undo()}
-            className="p-1.5 rounded text-[#59606d] dark:text-[#9ba2b0] hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
-            title="Undo (Ctrl+Z)"
-            aria-label="Undo"
-          >
-            <Undo2 className="w-3.5 h-3.5" />
-          </button>
+        {/* Page Width, View Mode Toggle Switcher & Undo/Redo */}
+        <div className="flex items-center gap-1.5 ml-auto">
+          {onCyclePageWidth && (
+            <div className="flex items-stretch rounded border border-[#e5e3dc] dark:border-[#282b33] bg-[#f8f7f4] dark:bg-[#111215] overflow-hidden">
+              <button
+                type="button"
+                onClick={onCyclePageWidth}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-[#59606d] dark:text-[#9ba2b0] hover:text-[#191b1f] dark:hover:text-[#eceef2] hover:bg-black/5 dark:hover:bg-white/5 transition-colors focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
+                title={`Page width: ${pageWidth || 768}px. Click to cycle width presets (Standard, Wide, Full, Narrow)`}
+                aria-label="Cycle page width preset"
+              >
+                <MoveHorizontal className="w-3 h-3 text-[#2d6a4f] dark:text-[#52b788]" />
+                <span className="font-mono text-[10px] hidden sm:inline">{pageWidth || 768}px</span>
+              </button>
+              {onToggleWidthSync && (
+                <button
+                  type="button"
+                  onClick={onToggleWidthSync}
+                  className={`flex items-center px-1.5 py-1 border-l border-[#e5e3dc] dark:border-[#282b33] transition-colors focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788] ${
+                    isWidthSynced
+                      ? 'text-[#2d6a4f] dark:text-[#52b788] hover:bg-black/5 dark:hover:bg-white/5'
+                      : 'text-[#59606d]/60 dark:text-[#9ba2b0]/60 hover:text-[#191b1f] dark:hover:text-[#eceef2] hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                  title={
+                    isWidthSynced
+                      ? `Global page size sync is ON (${pageWidth || 768}px). Click to adjust pages independently.`
+                      : `Global page size sync is OFF. Click to sync all pages globally to this view (${pageWidth || 768}px).`
+                  }
+                  aria-label={
+                    isWidthSynced
+                      ? 'Disable global page size sync'
+                      : 'Sync page size globally based on current view'
+                  }
+                >
+                  {isWidthSynced ? (
+                    <Link2 className="w-3 h-3" />
+                  ) : (
+                    <Link2Off className="w-3 h-3" />
+                  )}
+                </button>
+              )}
+            </div>
+          )}
 
-          <button
-            type="button"
-            onClick={() => editor.chain().focus().redo().run()}
-            disabled={!editor.can().redo()}
-            className="p-1.5 rounded text-[#59606d] dark:text-[#9ba2b0] hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
-            title="Redo (Ctrl+Shift+Z)"
-            aria-label="Redo"
-          >
-            <Redo2 className="w-3.5 h-3.5" />
-          </button>
+          {onToggleViewMode && (
+            <div
+              className="flex items-center p-0.5 rounded-md border border-[#e5e3dc] dark:border-[#282b33] bg-[#f8f7f4] dark:bg-[#111215]"
+              role="radiogroup"
+              aria-label="Document view mode"
+            >
+              <button
+                type="button"
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors bg-[#ffffff] dark:bg-[#17191e] text-[#2d6a4f] dark:text-[#52b788] shadow-xs focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
+                role="radio"
+                aria-checked={true}
+                title="Rendered Markdown Active (Alt+M)"
+              >
+                <Eye className="w-3 h-3" />
+                <span>Rendered</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleViewMode()}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors text-[#59606d] dark:text-[#9ba2b0] hover:text-[#191b1f] dark:hover:text-[#eceef2] focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
+                role="radio"
+                aria-checked={false}
+                title="Switch to Raw Markdown (Alt+M)"
+              >
+                <Code className="w-3 h-3" />
+                <span>Raw</span>
+              </button>
+            </div>
+          )}
+
+          <div className="w-[1px] h-4 bg-[#e5e3dc] dark:bg-[#282b33] mx-1" aria-hidden="true" />
+
+          {/* Undo / Redo */}
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().undo().run()}
+              disabled={!editor.can().undo()}
+              className="p-1.5 rounded text-[#59606d] dark:text-[#9ba2b0] hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
+              title="Undo (Ctrl+Z)"
+              aria-label="Undo"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().redo().run()}
+              disabled={!editor.can().redo()}
+              className="p-1.5 rounded text-[#59606d] dark:text-[#9ba2b0] hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-[#2d6a4f] dark:focus-visible:outline-[#52b788]"
+              title="Redo (Ctrl+Shift+Z)"
+              aria-label="Redo"
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 

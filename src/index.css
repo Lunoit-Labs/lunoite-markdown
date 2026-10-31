@@ -49,8 +49,15 @@
 }
 
 /* Prose and Tiptap styling for rendered Markdown */
-.tiptap {
-  outline: none;
+.tiptap,
+.tiptap:focus,
+.tiptap:focus-visible,
+.ProseMirror,
+.ProseMirror:focus,
+.ProseMirror:focus-visible,
+.ProseMirror-focused {
+  outline: none !important;
+  box-shadow: none !important;
   min-height: 480px;
 }
 
@@ -239,3 +246,56 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
   border-top: 1px solid var(--border-subtle);
   margin: 2rem 0;
 }
+
+/* In-canvas search match highlighting */
+.search-match {
+  background-color: rgba(234, 179, 8, 0.28);
+  border-radius: 2px;
+  padding: 0.1em 0.15em;
+  transition: background-color 0.15s ease, outline 0.15s ease;
+}
+
+.search-match-active {
+  background-color: rgba(45, 106, 79, 0.35);
+  outline: 2px solid #2d6a4f;
+  outline-offset: 1.5px;
+  border-radius: 2px;
+  font-weight: 500;
+  scroll-margin-top: 100px;
+  scroll-margin-bottom: 100px;
+  animation: match-pulse-light 0.35s ease-out;
+}
+
+@keyframes match-pulse-light {
+  0% {
+    outline-width: 4px;
+    background-color: rgba(45, 106, 79, 0.6);
+  }
+  100% {
+    outline-width: 2px;
+    background-color: rgba(45, 106, 79, 0.35);
+  }
+}
+
+.dark .search-match {
+  background-color: rgba(234, 179, 8, 0.32);
+}
+
+.dark .search-match-active {
+  background-color: rgba(82, 183, 136, 0.4);
+  outline: 2px solid #52b788;
+  animation: match-pulse-dark 0.35s ease-out;
+}
+
+@keyframes match-pulse-dark {
+  0% {
+    outline-width: 4px;
+    background-color: rgba(82, 183, 136, 0.7);
+  }
+  100% {
+    outline-width: 2px;
+    background-color: rgba(82, 183, 136, 0.4);
+  }
+}
+
+
